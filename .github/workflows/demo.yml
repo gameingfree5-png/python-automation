@@ -1,9 +1,13 @@
-name: Server Playlist Every 5 Hours
+name: Website Playlist Every 5 Hours
 
 on:
   workflow_dispatch:
+    inputs:
+      validate_only:
+        description: Check code and Chrome without contacting the server
+        type: boolean
+        default: false
   schedule:
-    # Check hourly and sync every fifth hour across midnight.
     - cron: "30 * * * *"
 
 concurrency:
@@ -11,54 +15,71 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync-playlist:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  refresh-playlist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: write
     env:
-      PLAYLIST_SOURCE_URL: ${{ vars.PLAYLIST_SOURCE_URL }}
+      BASE_URL: ${{ vars.BASE_URL || 'https://myvideo.com' }}
+      MODEL_NAMES: ${{ vars.MODEL_NAMES || 'violet-myers,candy-love' }}
     steps:
-      - name: Check 5-hour interval
+      - name: Check five-hour interval
         id: interval
         env:
           EVENT_NAME: ${{ github.event_name }}
+          VALIDATE_ONLY: ${{ inputs.validate_only }}
         run: |
           python3 - <<'PY'
           import os
           from datetime import datetime, timezone
           slot = int((datetime.now(timezone.utc).timestamp() - 1800) // 3600)
-          due = os.environ["EVENT_NAME"] == "workflow_dispatch" or slot % 5 == 0
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"due={str(due).lower()}\n")
-          print("Sync is due." if due else "Waiting for the next 5-hour slot.")
+          due = os.environ['EVENT_NAME'] == 'workflow_dispatch' or slot % 5 == 0
+          due = due and os.environ.get('VALIDATE_ONLY') != 'true'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'due={str(due).lower()}\n')
+          print('Refresh due.' if due else 'Validation only or waiting for next five-hour slot.')
           PY
 
       - name: Checkout repository
+        if: steps.interval.outputs.due == 'true' || inputs.validate_only
         uses: actions/checkout@v7
         with:
           ref: main
 
-      - name: Validate sync script syntax
-        run: python3 -m py_compile sync_playlist.py
+      - name: Install Python dependencies
+        if: steps.interval.outputs.due == 'true' || inputs.validate_only
+        run: python3 -m pip install -r requirements.txt
 
-      - name: Await server configuration
-        if: env.PLAYLIST_SOURCE_URL == ''
-        run: echo "Set repository variable PLAYLIST_SOURCE_URL to your server JSON endpoint. Existing playlist is preserved."
+      - name: Check script and Chrome
+        if: steps.interval.outputs.due == 'true' || inputs.validate_only
+        run: |
+          python3 -m py_compile demo.py
+          python3 demo.py --help
+          python3 - <<'PY'
+          from demo import get_driver
+          driver = get_driver(headless=True)
+          try:
+              driver.get('data:text/html,<title>Driver ready</title>')
+              assert driver.title == 'Driver ready'
+              print('Headless Chrome check passed.')
+          finally:
+              driver.quit()
+          PY
 
-      - name: Fetch server playlist
-        if: steps.interval.outputs.due == 'true' && env.PLAYLIST_SOURCE_URL != ''
-        run: python3 sync_playlist.py
+      - name: Scrape all pages and generate playlists
+        if: steps.interval.outputs.due == 'true'
+        run: python3 demo.py --headless
 
-      - name: Save playlist and refresh status
-        if: steps.interval.outputs.due == 'true' && env.PLAYLIST_SOURCE_URL != ''
+      - name: Save JSON and M3U playlists
+        if: steps.interval.outputs.due == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add playlist.json demo-status.json
+          git add playlist.json playlist.m3u
           if git diff --cached --quiet; then
-            echo "No changes."
+            echo "No playlist changes."
           else
-            git commit -m "Refresh server playlist and status"
+            git commit -m "Refresh website playlists"
             git push origin HEAD:main
           fi
