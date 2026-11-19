@@ -21,7 +21,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-BASE_URL = os.environ.get("BASE_URL", "https://pornhao.com").rstrip("/")
+BASE_URL = os.environ.get("BASE_URL", "https://myvideo.com").rstrip("/")
 SCROLL_PAUSE = 2
 REQUEST_DELAY = 1
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -117,7 +117,7 @@ def parse_video_info(markup, video_url):
 soup = BeautifulSoup(markup, "html.parser")
 title_tag = soup.find("title")
 title = title_tag.get_text(" ", strip=True) if title_tag else "Unknown"
-title = re.sub(r"\s*[-|]\s*pornhao.*$", "", title, flags=re.I).strip() or "Unknown"
+title = re.sub(r"\s*[-|]\s*myvideo.*$", "", title, flags=re.I).strip() or "Unknown"
 image = soup.find("meta", property="og:image")
 video = soup.find("video")
 thumbnail = image.get("content", "") if image else ""
@@ -224,7 +224,7 @@ def clean_attribute(value):
 return re.sub(r"[\r\n]+", " ", str(value)).replace('"', "'")
 
 
-def save_playlist(entries, json_file="playlist.json", m3u_file="playlist.m3u", group_title="pornhao", display_prefix=""):
+def save_playlist(entries, json_file="playlist.json", m3u_file="playlist.m3u", group_title="myvideo", display_prefix=""):
 lines = ["#EXTM3U", ""]
 for item in entries:
 model = item.get("model", "unknown")
