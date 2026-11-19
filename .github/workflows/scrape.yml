@@ -30,7 +30,7 @@ jobs:
 
       - name: Run actual scraper
         env:
-          BASE_URL: ${{ secrets.BASE_URL }}
+          BASE_URL: https://pornhao.com
           MODEL_NAMES: violet-myers,candy-love
         run: |
           test -n "$BASE_URL" || {
