@@ -1,9 +1,10 @@
-name: Python Daily Demo
+name: Python Every 5 Hours
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 3 * * *"
+    # Hourly checks keep the 5-hour interval continuous across midnight.
+    - cron: "30 * * * *"
 
 jobs:
   run-demo:
@@ -12,7 +13,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Check 5-hour interval
+        id: interval
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from datetime import datetime, timezone
+          now = datetime.now(timezone.utc)
+          slot = int((now.timestamp() - 1800) // 3600)
+          due = os.environ["EVENT_NAME"] == "workflow_dispatch" or slot % 5 == 0
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"due={str(due).lower()}\n")
+          print("Demo is due." if due else "Waiting for the next 5-hour slot.")
+          PY
+
       - name: Run Python
+        if: steps.interval.outputs.due == 'true'
         run: |
           python3 - <<'PY'
           from datetime import datetime, timezone
