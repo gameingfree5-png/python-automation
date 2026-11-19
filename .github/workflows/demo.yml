@@ -1,4 +1,6 @@
-name: Python Every 5 Hours
+    steps:
+      - name: Run demo
+        run: python3 demo.py
 
 on:
   workflow_dispatch:
