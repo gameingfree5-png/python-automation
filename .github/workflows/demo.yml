@@ -1,11 +1,9 @@
-    steps:
-      - name: Run demo
-        run: python3 demo.py
+name: Server Playlist Every 5 Hours
 
 on:
   workflow_dispatch:
   schedule:
-    # Hourly checks keep the 5-hour interval continuous across midnight.
+    # Check hourly and sync every fifth hour across midnight.
     - cron: "30 * * * *"
 
 concurrency:
@@ -13,11 +11,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  run-demo:
+  sync-playlist:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
+    env:
+      PLAYLIST_SOURCE_URL: ${{ vars.PLAYLIST_SOURCE_URL }}
     steps:
       - name: Check 5-hour interval
         id: interval
@@ -27,33 +27,38 @@ jobs:
           python3 - <<'PY'
           import os
           from datetime import datetime, timezone
-          now = datetime.now(timezone.utc)
-          slot = int((now.timestamp() - 1800) // 3600)
+          slot = int((datetime.now(timezone.utc).timestamp() - 1800) // 3600)
           due = os.environ["EVENT_NAME"] == "workflow_dispatch" or slot % 5 == 0
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"due={str(due).lower()}\n")
-          print("Demo is due." if due else "Waiting for the next 5-hour slot.")
+          print("Sync is due." if due else "Waiting for the next 5-hour slot.")
           PY
 
       - name: Checkout repository
-        if: steps.interval.outputs.due == 'true'
         uses: actions/checkout@v7
         with:
           ref: main
 
-      - name: Refresh demo playlist and status
-        if: steps.interval.outputs.due == 'true'
-        run: python3 demo.py
+      - name: Validate sync script syntax
+        run: python3 -m py_compile sync_playlist.py
 
-      - name: Save refreshed playlist and status
-        if: steps.interval.outputs.due == 'true'
+      - name: Await server configuration
+        if: env.PLAYLIST_SOURCE_URL == ''
+        run: echo "Set repository variable PLAYLIST_SOURCE_URL to your server JSON endpoint. Existing playlist is preserved."
+
+      - name: Fetch server playlist
+        if: steps.interval.outputs.due == 'true' && env.PLAYLIST_SOURCE_URL != ''
+        run: python3 sync_playlist.py
+
+      - name: Save playlist and refresh status
+        if: steps.interval.outputs.due == 'true' && env.PLAYLIST_SOURCE_URL != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add demo-status.json playlist.json
+          git add playlist.json demo-status.json
           if git diff --cached --quiet; then
             echo "No changes."
           else
-            git commit -m "Refresh demo playlist and status"
+            git commit -m "Refresh server playlist and status"
             git push origin HEAD:main
           fi
