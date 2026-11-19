@@ -21,7 +21,7 @@ jobs:
     permissions:
       contents: write
     env:
-      BASE_URL: ${{ vars.BASE_URL || 'https://pornhao.com' }}
+      BASE_URL: ${{ vars.BASE_URL || 'https://myvideo.com' }}
       MODEL_NAMES: ${{ vars.MODEL_NAMES || 'violet-myers,candy-love' }}
     steps:
       - name: Check five-hour interval
