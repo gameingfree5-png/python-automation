@@ -39,19 +39,19 @@ jobs:
         with:
           ref: main
 
-      - name: Refresh demo status
+      - name: Refresh demo playlist and status
         if: steps.interval.outputs.due == 'true'
         run: python3 demo.py
 
-      - name: Save refreshed status
+      - name: Save refreshed playlist and status
         if: steps.interval.outputs.due == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add demo-status.json
+          git add demo-status.json playlist.json
           if git diff --cached --quiet; then
-            echo "No status changes."
+            echo "No changes."
           else
-            git commit -m "Refresh demo status"
+            git commit -m "Refresh demo playlist and status"
             git push origin HEAD:main
           fi
