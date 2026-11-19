@@ -29,15 +29,19 @@ log = logging.getLogger(__name__)
 
 
 def get_driver(headless=False):
-options = webdriver.ChromeOptions()
-if headless:
-options.add_argument("--headless=new")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--window-size=1920,1080")
-driver = webdriver.Chrome(options=options)
-driver.set_page_load_timeout(45)
-return driver
+    options = webdriver.ChromeOptions()
+
+    if headless:
+        options.add_argument("--headless=new")
+
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(45)
+
+    return driver
 
 
 def scroll_to_load_all(driver, max_scrolls=50):
