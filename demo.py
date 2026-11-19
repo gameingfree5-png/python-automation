@@ -1,6 +1,6 @@
 
 #!/usr/bin/env python3
-"""Scrape video pages and save playlist.json and playlist.m3u."""
+"""Scrape video pages and generate JSON/M3U playlists."""
 
 import argparse
 import html
@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import time
+
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urldefrag
 
@@ -22,7 +23,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-BASE_URL = os.environ.get("BASE_URL", "https://pornhao.com").rstrip("/")
+BASE_URL = os.environ.get(
+    "BASE_URL", "https://myvideo.com"
+).rstrip("/")
+
 SCROLL_PAUSE = 2
 REQUEST_DELAY = 1
 
@@ -30,8 +34,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
+
 log = logging.getLogger(__name__)
 
+
+# -----------------------------------------
+# CHROME DRIVER
+# -----------------------------------------
 
 def get_driver(headless=False):
     options = webdriver.ChromeOptions()
@@ -49,10 +58,80 @@ def get_driver(headless=False):
     return driver
 
 
+# -----------------------------------------
+# VIDEO QUALITY PARSER
+# -----------------------------------------
+
+def parse_qualities(raw_stream, page_url=""):
+    """
+    Example input:
+    URL1,[1080p]URL2,[480p]URL3,[360p]URL4
+
+    Output:
+    {
+        "Auto": URL1,
+        "1080p": URL2,
+        "480p": URL3,
+        "360p": URL4
+    }
+    """
+
+    if not raw_stream:
+        return {}
+
+    raw_stream = html.unescape(str(raw_stream))
+    raw_stream = raw_stream.replace("\\/", "/")
+    raw_stream = raw_stream.strip()
+
+    parts = re.split(
+        r",\s*\[([^\]]+)\]\s*",
+        raw_stream
+    )
+
+    qualities = {}
+
+    first_url = parts[0].strip().strip(",")
+
+    if first_url:
+        qualities["Auto"] = urljoin(
+            page_url, first_url
+        )
+
+    for index in range(1, len(parts) - 1, 2):
+        quality = parts[index].strip()
+        stream_url = parts[index + 1].strip()
+
+        if not quality or not stream_url:
+            continue
+
+        stream_url = stream_url.strip(",")
+
+        qualities[quality] = urljoin(
+            page_url, stream_url
+        )
+
+    return qualities
+
+
+def get_auto_url(qualities):
+    if not qualities:
+        return ""
+
+    return (
+        qualities.get("Auto")
+        or next(iter(qualities.values()), "")
+    )
+
+
+# -----------------------------------------
+# SCROLL PAGE
+# -----------------------------------------
+
 def scroll_to_load_all(driver, max_scrolls=50):
     last_height = driver.execute_script(
         "return document.body.scrollHeight"
     )
+
     unchanged = 0
 
     for _ in range(max_scrolls):
@@ -66,13 +145,21 @@ def scroll_to_load_all(driver, max_scrolls=50):
             "return document.body.scrollHeight"
         )
 
-        unchanged = unchanged + 1 if height == last_height else 0
+        unchanged = (
+            unchanged + 1
+            if height == last_height
+            else 0
+        )
 
         if unchanged >= 2:
             break
 
         last_height = height
 
+
+# -----------------------------------------
+# WEBSITE URL HELPERS
+# -----------------------------------------
 
 def same_site(url):
     return (
@@ -82,13 +169,21 @@ def same_site(url):
 
 
 def extract_video_urls(driver):
-    soup = BeautifulSoup(driver.page_source, "html.parser")
+    soup = BeautifulSoup(
+        driver.page_source,
+        "html.parser"
+    )
 
     urls = []
     seen = set()
 
-    for anchor in soup.select("a[href], a[data-href]"):
-        href = anchor.get("data-href") or anchor.get("href", "")
+    for anchor in soup.select(
+        "a[href], a[data-href]"
+    ):
+        href = (
+            anchor.get("data-href")
+            or anchor.get("href", "")
+        )
 
         url = urldefrag(
             urljoin(driver.current_url, href)
@@ -105,8 +200,15 @@ def extract_video_urls(driver):
     return urls
 
 
+# -----------------------------------------
+# NEXT PAGE
+# -----------------------------------------
+
 def find_next_page(markup, current_url):
-    soup = BeautifulSoup(markup, "html.parser")
+    soup = BeautifulSoup(
+        markup,
+        "html.parser"
+    )
 
     candidates = list(
         soup.select(
@@ -141,10 +243,16 @@ def find_next_page(markup, current_url):
             candidates.append(anchor)
 
     for element in candidates:
+        parent_classes = (
+            element.parent.get("class", [])
+            if element.parent
+            else []
+        )
+
         disabled = (
             " ".join(element.get("class", []))
             + " "
-            + " ".join(element.parent.get("class", []))
+            + " ".join(parent_classes)
         )
 
         if (
@@ -155,14 +263,19 @@ def find_next_page(markup, current_url):
 
         href = element.get("href", "")
 
-        if not href or href.startswith(("#", "javascript:")):
+        if not href or href.startswith(
+            ("#", "javascript:")
+        ):
             continue
 
         url = urldefrag(
             urljoin(current_url, href)
         )[0]
 
-        if same_site(url) and url != urldefrag(current_url)[0]:
+        if (
+            same_site(url)
+            and url != urldefrag(current_url)[0]
+        ):
             return url
 
     current = soup.select_one(
@@ -179,7 +292,9 @@ def find_next_page(markup, current_url):
         )
 
         if match:
-            wanted = str(int(match.group()) + 1)
+            wanted = str(
+                int(match.group()) + 1
+            )
 
             for container in pagination:
                 anchors = (
@@ -195,14 +310,24 @@ def find_next_page(markup, current_url):
                             anchor.get("href", "")
                         )
 
-                        if same_site(url) and url != current_url:
+                        if (
+                            same_site(url)
+                            and url != current_url
+                        ):
                             return urldefrag(url)[0]
 
     return None
 
 
+# -----------------------------------------
+# MODEL AVATAR
+# -----------------------------------------
+
 def get_model_avatar(driver):
-    soup = BeautifulSoup(driver.page_source, "html.parser")
+    soup = BeautifulSoup(
+        driver.page_source,
+        "html.parser"
+    )
 
     image = soup.select_one(
         "img.avatar, "
@@ -222,8 +347,15 @@ def get_model_avatar(driver):
     return ""
 
 
+# -----------------------------------------
+# EXTRACT VIDEO INFORMATION
+# -----------------------------------------
+
 def parse_video_info(markup, video_url):
-    soup = BeautifulSoup(markup, "html.parser")
+    soup = BeautifulSoup(
+        markup,
+        "html.parser"
+    )
 
     title_tag = soup.find("title")
 
@@ -235,7 +367,7 @@ def parse_video_info(markup, video_url):
 
     title = (
         re.sub(
-            r"\s*[-|]\s*pornhao.*$",
+            r"\s*[-|]\s*myvideo.*$",
             "",
             title,
             flags=re.I
@@ -243,10 +375,18 @@ def parse_video_info(markup, video_url):
         or "Unknown"
     )
 
-    image = soup.find("meta", property="og:image")
+    image = soup.find(
+        "meta",
+        property="og:image"
+    )
+
     video = soup.find("video")
 
-    thumbnail = image.get("content", "") if image else ""
+    thumbnail = (
+        image.get("content", "")
+        if image
+        else ""
+    )
 
     if not thumbnail and video:
         thumbnail = video.get("poster", "")
@@ -254,9 +394,16 @@ def parse_video_info(markup, video_url):
     if not thumbnail:
         image = soup.find(
             "img",
-            class_=re.compile(r"thumb|poster|cover|preview")
+            class_=re.compile(
+                r"thumb|poster|cover|preview"
+            )
         )
-        thumbnail = image.get("src", "") if image else ""
+
+        thumbnail = (
+            image.get("src", "")
+            if image
+            else ""
+        )
 
     thumbnail = (
         urljoin(video_url, thumbnail)
@@ -264,53 +411,84 @@ def parse_video_info(markup, video_url):
         else ""
     )
 
-    stream = video.get("src", "") if video else ""
+    stream = (
+        video.get("src", "")
+        if video
+        else ""
+    )
 
     if not stream:
-        source = soup.select_one("video source[src]")
-        stream = source.get("src", "") if source else ""
+        source = soup.select_one(
+            "video source[src]"
+        )
+
+        stream = (
+            source.get("src", "")
+            if source
+            else ""
+        )
 
     if not stream:
-        text = html.unescape(markup).replace("\\/", "/")
+        text = html.unescape(markup)
+        text = text.replace("\\/", "/")
 
-        for extension in ("m3u8", "mp4"):
-            pattern = (
-                r'''https?://[^\s"'<>\\]+?\.'''
-                + extension
-                + r'''(?:\?[^\s"'<>\\]*)?'''
-            )
+        # Find MP4 or M3U8 stream.
+        # Also preserve attached quality links.
+        pattern = (
+            r'''https?://[^\s"'<>\\]+?'''
+            r'''\.(?:m3u8|mp4)'''
+            r'''(?:\?[^\s"'<>\\]*)?'''
+        )
 
-            match = re.search(
-                pattern,
-                text,
-                flags=re.I
-            )
+        match = re.search(
+            pattern,
+            text,
+            flags=re.I
+        )
 
-            if match:
-                stream = match.group()
-                break
+        if match:
+            stream = match.group()
 
-    if stream:
-        return {
-            "url": urljoin(
-                video_url,
-                html.unescape(stream)
-            ),
-            "title": title,
-            "thumbnail": thumbnail
-        }
+    if not stream:
+        return None
 
-    return None
+    # Split Auto and quality URLs.
+    qualities = parse_qualities(
+        stream,
+        video_url
+    )
+
+    auto_url = get_auto_url(qualities)
+
+    if not auto_url:
+        return None
+
+    return {
+        "url": auto_url,
+        "title": title,
+        "thumbnail": thumbnail,
+        "qualities": qualities
+    }
 
 
-def get_video_info(video_url, session=None, driver=None):
+# -----------------------------------------
+# GET VIDEO INFO
+# -----------------------------------------
+
+def get_video_info(
+    video_url,
+    session=None,
+    driver=None
+):
     session = session or requests.Session()
 
     try:
         response = session.get(
             video_url,
             timeout=30,
-            headers={"Referer": BASE_URL + "/"}
+            headers={
+                "Referer": BASE_URL + "/"
+            }
         )
 
         response.raise_for_status()
@@ -351,7 +529,15 @@ def get_video_info(video_url, session=None, driver=None):
     return None
 
 
-def scrape_model(model_name, max_videos=None, headless=False):
+# -----------------------------------------
+# SCRAPE MODEL
+# -----------------------------------------
+
+def scrape_model(
+    model_name,
+    max_videos=None,
+    headless=False
+):
     driver = get_driver(headless)
     results = []
 
@@ -396,19 +582,24 @@ def scrape_model(model_name, max_videos=None, headless=False):
 
             except TimeoutException:
                 log.warning(
-                    "No video links found on this listing page."
+                    "No video links found."
                 )
 
             scroll_to_load_all(driver)
 
-            avatar = avatar or get_model_avatar(driver)
+            avatar = (
+                avatar or get_model_avatar(driver)
+            )
 
             for url in extract_video_urls(driver):
                 if url not in seen_videos:
                     seen_videos.add(url)
                     video_pages.append(url)
 
-            if max_videos and len(video_pages) >= max_videos:
+            if (
+                max_videos
+                and len(video_pages) >= max_videos
+            ):
                 video_pages = video_pages[:max_videos]
                 break
 
@@ -433,7 +624,9 @@ def scrape_model(model_name, max_videos=None, headless=False):
                     domain=cookie.get("domain", "")
                 )
 
-            for index, url in enumerate(video_pages, 1):
+            for index, url in enumerate(
+                video_pages, 1
+            ):
                 log.info(
                     "%s: processing video %s/%s",
                     model_name,
@@ -455,7 +648,8 @@ def scrape_model(model_name, max_videos=None, headless=False):
                         "stream_url": info["url"],
                         "thumbnail": (
                             info["thumbnail"] or avatar
-                        )
+                        ),
+                        "qualities": info["qualities"]
                     })
 
                 else:
@@ -473,7 +667,15 @@ def scrape_model(model_name, max_videos=None, headless=False):
     return results
 
 
-def scrape_models(model_names, max_videos=None, headless=False):
+# -----------------------------------------
+# SCRAPE MULTIPLE MODELS
+# -----------------------------------------
+
+def scrape_models(
+    model_names,
+    max_videos=None,
+    headless=False
+):
     entries = []
 
     for model in model_names:
@@ -494,6 +696,10 @@ def scrape_models(model_names, max_videos=None, headless=False):
     return entries
 
 
+# -----------------------------------------
+# PLAYLIST GENERATION
+# -----------------------------------------
+
 def clean_attribute(value):
     return (
         re.sub(r"[\r\n]+", " ", str(value))
@@ -505,17 +711,24 @@ def save_playlist(
     entries,
     json_file="playlist.json",
     m3u_file="playlist.m3u",
-    group_title="pornhao",
+    group_title="myvideo",
     display_prefix=""
 ):
     lines = ["#EXTM3U", ""]
 
     for item in entries:
-        model = item.get("model", "unknown")
+        model = item.get(
+            "model",
+            "unknown"
+        )
 
         title = clean_attribute(
-            display_prefix + item.get("title", model)
+            display_prefix
+            + item.get("title", model)
         )
+
+        # M3U contains only Auto stream URL.
+        stream_url = item["stream_url"]
 
         extinf = (
             f'#EXTINF:-1 '
@@ -527,8 +740,9 @@ def save_playlist(
         )
 
         lines.append(extinf)
+
         lines.extend([
-            item["stream_url"],
+            stream_url,
             ""
         ])
 
@@ -567,13 +781,17 @@ def save_playlist(
     )
 
 
+# -----------------------------------------
+# MAIN
+# -----------------------------------------
+
 def main():
     global BASE_URL
 
     parser = argparse.ArgumentParser(
         description=(
-            "Scrape your video website and "
-            "output JSON and M3U playlists"
+            "Scrape video website and "
+            "generate JSON and M3U playlists"
         )
     )
 
@@ -593,8 +811,7 @@ def main():
     parser.add_argument(
         "--max",
         type=int,
-        default=None,
-        help="Maximum videos per model; omit for all pages"
+        default=None
     )
 
     parser.add_argument(
@@ -626,12 +843,14 @@ def main():
 
     BASE_URL = args.base_url.rstrip("/")
 
+    parsed_url = urlsplit(BASE_URL)
+
     if (
-        urlsplit(BASE_URL).scheme not in {"http", "https"}
-        or not urlsplit(BASE_URL).netloc
+        parsed_url.scheme not in {"http", "https"}
+        or not parsed_url.netloc
     ):
         parser.error(
-            "--base-url must be an HTTP or HTTPS URL"
+            "--base-url must be a valid HTTP/HTTPS URL"
         )
 
     if args.max is not None and args.max < 1:
@@ -658,7 +877,7 @@ def main():
         )
     ):
         parser.error(
-            "--models must contain comma-separated model slugs"
+            "--models must contain valid model slugs"
         )
 
     try:
@@ -678,8 +897,8 @@ def main():
 
     except Exception:
         log.exception(
-            "Refresh failed. Existing playlist files "
-            "were preserved if scraping failed."
+            "Scraping failed. "
+            "Existing playlist files preserved."
         )
         return 1
 
