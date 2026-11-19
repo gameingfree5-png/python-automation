@@ -24,7 +24,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 BASE_URL = os.environ.get(
-    "BASE_URL", "https://myvideo.com"
+    "BASE_URL", "https://pornhao.com"
 ).rstrip("/")
 
 SCROLL_PAUSE = 2
@@ -367,7 +367,7 @@ def parse_video_info(markup, video_url):
 
     title = (
         re.sub(
-            r"\s*[-|]\s*myvideo.*$",
+            r"\s*[-|]\s*pornhao.*$",
             "",
             title,
             flags=re.I
@@ -711,7 +711,7 @@ def save_playlist(
     entries,
     json_file="playlist.json",
     m3u_file="playlist.m3u",
-    group_title="myvideo",
+    group_title="pornhao",
     display_prefix=""
 ):
     lines = ["#EXTM3U", ""]
