@@ -544,7 +544,7 @@ def scrape_model(
     try:
         page = urljoin(
             BASE_URL + "/",
-            f"/"
+            f"models/{model_name}/"
         )
 
         visited_pages = set()
