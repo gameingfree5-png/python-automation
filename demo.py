@@ -804,7 +804,7 @@ def main():
         "--models",
         default=os.environ.get(
             "MODEL_NAMES",
-            "porn-videos,diana-rider,violet-myers,candy-love"
+            ",violet-myers,candy-love"
         )
     )
 
